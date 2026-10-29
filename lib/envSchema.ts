@@ -63,6 +63,11 @@ export const envSchema = z
       /^apify_api_[A-Za-z0-9]{20,}$/,
       "must start with apify_api_ (copy it from console.apify.com > Settings > API & Integrations)"
     ),
+
+    GOOGLE_MAPS_API_KEY: optionalSecret(
+      /^AIza[0-9A-Za-z_-]{35}$/,
+      "must be a Google Cloud API key starting with AIza (create one with the Places API (New) enabled)"
+    ),
   })
   .superRefine((value, ctx) => {
     const require = (path: string, message: string) =>

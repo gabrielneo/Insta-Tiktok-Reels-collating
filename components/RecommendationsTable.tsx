@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, Download, ExternalLink, Compass } from "lucide-react";
+import { Search, Download, ExternalLink, Compass, MapPin } from "lucide-react";
 import { CATEGORIES, type Category, type Recommendation } from "@/lib/types";
 import { exportRecommendationsToExcel } from "@/lib/excelExport";
 
@@ -128,6 +128,7 @@ export default function RecommendationsTable({
               <Th>Location</Th>
               <Th>Recommended Activities</Th>
               <Th>Notes / Highlights</Th>
+              <Th>Map</Th>
               <Th>Source</Th>
             </tr>
           </thead>
@@ -152,6 +153,28 @@ export default function RecommendationsTable({
                 </td>
                 <td className="max-w-[240px] px-4 py-3 text-ink-soft">
                   {rec.rating_or_notes || "—"}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  {rec.geo?.status === "found" ? (
+                    <a
+                      href={rec.geo.maps_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={rec.geo.formatted_address}
+                      className="inline-flex items-center gap-1 text-pine hover:text-pine-dark hover:underline"
+                    >
+                      <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
+                      Open
+                    </a>
+                  ) : rec.geo?.status === "not_found" ? (
+                    <span className="text-xs text-ink-faint">Not found</span>
+                  ) : rec.geo?.status === "error" ? (
+                    <span className="text-xs text-clay" title={rec.geo.reason}>
+                      Failed
+                    </span>
+                  ) : (
+                    <span className="text-ink-faint">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <a

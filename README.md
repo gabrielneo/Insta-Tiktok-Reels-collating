@@ -35,6 +35,7 @@ export to Excel.
 - 🍽️ **Every spot pulled out:** one reel that mentions five places gives you five rows
 - 🔎 **Search and filter** by name, location or category (Food & Drink, Adventure, Culture, Shopping, Sightseeing)
 - 📊 **Export to Excel** for trip planning, or to share with the group chat
+- 🗺️ **Put it on a map:** find every place on Google Maps and import the pins into your own Google My Maps
 - 🤖 **Use any AI model you like:** Claude, GPT, Gemini, Llama, Mistral, DeepSeek, or a free local model with Ollama
 
 ## Try it in 1 minute (no keys needed)
@@ -91,6 +92,121 @@ Pretty much all of them. Set `AI_PROVIDER` to one of:
 
 Want to add another provider? It's one entry in `lib/aiProviders.ts`.
 
+## Get the links from your saved food collection
+
+Copying links one by one gets old fast. Both apps let you download your saved
+posts, so you can grab a whole "Food" collection in one go.
+
+### Instagram
+
+1. **Request your data.** In the app or on the web, go to **Settings and
+   privacy → Accounts Center → Your information and permissions → Download
+   your information**.
+2. **Pick only your saves.** Choose to select types of information and tick
+   **Saved** (saved posts and collections). Choose **HTML** if you'll pick
+   links by eye, or **JSON** if you'll pull them out with a command. Set the
+   date range to **All time**.
+3. **Download and unzip.** Instagram emails you a link, usually within minutes
+   to a few hours. Unzip it and look in the `saved` folder for
+   `saved_posts` (everything you've saved) and `saved_collections` (grouped by
+   collection name).
+
+To use one collection (say, "Food"), open `saved_collections.html` in your
+browser and copy the links listed under that collection.
+
+To pull every saved link out of the JSON export at once:
+
+```bash
+grep -rhoE 'https://www\.instagram\.com/(p|reel|reels)/[A-Za-z0-9_-]+/?' path/to/unzipped/folder | sort -u > instagram-links.txt
+```
+
+### TikTok
+
+1. **Request your data.** Go to **Profile → ☰ menu → Settings and privacy →
+   Account → Download your data**.
+2. **Choose the format.** Pick **JSON** (or TXT), select your data, and tap
+   **Request data**. It can take from a few hours to a few days; check the
+   **Download data** tab.
+3. **Download and unzip.** Your saved videos are listed as **Favorite
+   Videos** in the export.
+
+To pull every TikTok link out of the export:
+
+```bash
+grep -rhoE 'https://www\.tiktok(v)?\.com/[^" ]+' path/to/unzipped/folder | sort -u > tiktok-links.txt
+```
+
+TikTok's export lists your favourites but may not split them into your named
+collections. If you only want one collection, open it in the app and use
+**Share → Copy link** on each video.
+
+### Paste them into Fieldnotes
+
+Open the `.txt` file, copy up to **50 links** at a time, and paste them into
+the box on the left. Instagram and TikTok links can be mixed in one batch.
+
+Good to know:
+- Exports only contain links and collection names. The venue, address and tips
+  come from each video's caption, which is what Fieldnotes reads.
+- Export menus move around between app versions. If a step doesn't match what
+  you see, search the app's settings for "Download your information" or
+  "Download your data".
+
+## Put your places on a map
+
+Once your list is extracted, the **Put it on a map** panel above the table can
+turn it into pins on your own [Google My Maps](https://www.google.com/maps/d/)
+map.
+
+1. Add a Google Maps key to `.env.local` and restart:
+   ```bash
+   GOOGLE_MAPS_API_KEY=<your key>
+   ```
+   In [Google Cloud Console](https://console.cloud.google.com), enable
+   **Places API (New)**, create an API key, restrict it to that API, and set a
+   budget alert. `.env.example` has the step-by-step.
+2. Click **Find N places on Google Maps.** Each place is searched by name plus
+   location. The table's **Map** column fills in with a link to the match, and
+   Excel exports gain Address, Latitude, Longitude and Google Maps Link columns.
+3. Click **Download for My Maps (.csv)**, then in My Maps: **Add layer →
+   Import**, upload the file, tick **Latitude** and **Longitude** for the pin
+   positions, and choose **Name** as the title. Style the layer by
+   **Category** to colour-code the pins.
+
+### Limitations
+
+- **No automatic upload.** Google My Maps has no public API for adding pins,
+  so you import the file yourself. It takes about 30 seconds.
+- **Matches are a best guess.** Chains, closed venues, or places with an
+  "Unknown" location can match the wrong branch or city. Check the pins.
+- **Lookups are billable.** Each distinct place is one Places API request on
+  your Google Cloud account, after Google's monthly free allowance. Check
+  [current pricing](https://developers.google.com/maps/billing-and-pricing/pricing).
+- **Coordinates are short-lived.** Google's terms let you keep latitude and
+  longitude from the Places API for up to 30 days, so re-run the lookup for an
+  old list instead of reusing an old file.
+- **My Maps limits:** up to 2,000 rows per imported layer and 10 layers per map.
+- **Nothing is saved.** Results only live in your browser tab. Export before
+  you refresh or close it.
+
+## How long it takes
+
+The page shows an estimate before you start and a timer while it runs. Rough
+guide:
+
+| Step | Typical time |
+|---|---|
+| Scraping captions (Apify) | 20–60 s per group of 5 links |
+| AI summarising | 5–20 s per video, depending on provider and model |
+| A full batch of 50 links | about 8–27 minutes |
+| Finding places on Google Maps | under a second per place |
+| Demo mode (no AI model set) | a few seconds |
+
+Keep the tab open while it runs; results appear when the whole batch finishes.
+If you deploy the app, note that hosting platforms cut off long requests (the
+extraction route asks for 5 minutes), so run large batches locally or split
+them into smaller ones.
+
 ## How it works
 
 1. **Ingestion** (`fetchReelTranscripts` in `app/api/parse-reels/route.ts`):
@@ -102,7 +218,7 @@ Want to add another provider? It's one entry in `lib/aiProviders.ts`.
 
    Accepted links: `instagram.com/reel/…`, `/reels/…`, `/p/…`, and
    `tiktok.com/@user/video/…`, `/@user/photo/…`, `tiktok.com/t/…`,
-   `vm.tiktok.com/…`, `vt.tiktok.com/…`. To add another platform, add an
+   `vm.tiktok.com/…`, `vt.tiktok.com/…`, and `tiktokv.com/share/video/…` (the format in TikTok data exports). To add another platform, add an
    entry to `PLATFORMS` in the route.
 2. **Summarising** (`extractWithLLM`): each caption is sent to your chosen
    model through `lib/llm.ts`, which asks for a JSON list of places. Long
@@ -133,13 +249,18 @@ app/
   page.tsx                  — dashboard: input panel + results workspace
   layout.tsx                — fonts, metadata
   api/parse-reels/route.ts  — ingestion + AI extraction + validation
+  api/geocode/route.ts      — Google Places lookups for the map export
+  api/status/route.ts       — tells the page which services are configured (no secrets)
 components/
   RecommendationsTable.tsx  — search, category filters, export
+  MapExportPanel.tsx        — Google Maps lookup, limitations, My Maps export
 lib/
   aiProviders.ts            — list of supported AI providers and their settings
   llm.ts                    — one "give me JSON" call that works with any provider
   env.ts / envSchema.ts     — loads and checks .env values at startup
   excelExport.ts            — builds the .xlsx export in the browser (SheetJS)
+  myMapsExport.ts           — builds the CSV for Google My Maps import
+  estimate.ts               — time estimates shown in the UI
   types.ts                  — shared Recommendation type
 instrumentation.ts          — runs the env check when the server boots
 ```
@@ -157,6 +278,66 @@ instrumentation.ts          — runs the env check when the server boots
 - Leaked a key anyway? Revoke it at your provider first, then remove it from
   git history with [git-filter-repo](https://github.com/newren/git-filter-repo).
 - Found a security issue? See [SECURITY.md](SECURITY.md).
+
+## Troubleshooting
+
+### Page shows a 500 error: `Can't resolve '@vercel/turbopack-next/internal/font/google/font'`
+
+The app loads its fonts (Inter and Source Serif 4) from Google Fonts. If the
+dev server can't reach Google the first time it starts (common on a phone
+hotspot or flaky Wi-Fi), Turbopack stores the failed download and keeps
+showing this error, even after your connection is back.
+
+Stop the server (`Ctrl + C`), clear the build cache, and start again:
+
+```bash
+rm -rf .next      # build cache only; safe to delete, rebuilt automatically
+npm run dev
+```
+
+If it keeps happening on an unreliable connection, use the webpack bundler
+instead. It starts a little slower but handles font downloads differently:
+
+```bash
+npm run dev -- --webpack
+```
+
+### `Another next dev server is already running`
+
+Only one dev server can run per project folder. Use the one already running at
+the address shown, or stop it with the `kill <PID>` command in the message.
+
+### Server won't start: `Invalid environment configuration`
+
+A value in `.env.local` is missing or malformed. The message names each
+variable to fix and never prints its value. See `.env.example` for the
+expected format.
+
+### Error messages on failed links or map lookups
+
+Failed links are grouped by reason, and each message says what to do. The code
+in brackets at the end tells you which service failed:
+
+| Code | What it means | What to do |
+|---|---|---|
+| `AI_ERROR 401` / `403` | The AI provider rejected your key | Check `AI_API_KEY` in `.env.local` is filled in, copied fully and still active for `AI_PROVIDER`, then restart |
+| `AI_ERROR 404` | Model not found | Check `AI_MODEL` matches your provider's model name exactly |
+| `AI_ERROR 400` / `422` | Request rejected | Check `AI_MODEL` is a chat model your provider offers |
+| `AI_ERROR 402` / `429` | Rate limited or out of credit | Wait a minute, or check your provider's billing |
+| `AI_ERROR 5xx` | Provider outage | Try again in a few minutes |
+| `AI_CONNECTION_ERROR` | Couldn't reach the provider | Check your connection, `AI_BASE_URL`, and that Ollama or your local server is running |
+| `AI_REFUSED` | The model declined this caption | Try a different `AI_MODEL` |
+| `AI_TRUNCATED` / `AI_EMPTY_RESPONSE` / `AI_INVALID_JSON` | The model's answer was cut off or unreadable | Try again, or try a different `AI_MODEL` |
+| `APIFY_ERROR 401` / `403` | Apify rejected your token | Check `APIFY_API_TOKEN` in `.env.local`, then restart |
+| `APIFY_ERROR 402` | Out of Apify credit | Check billing at console.apify.com |
+| `APIFY_ERROR 408` | Scraping timed out | Try fewer links at once |
+| `APIFY_CONNECTION_ERROR` | Couldn't reach Apify | Check your connection |
+| `APIFY_EMPTY_RESPONSE` | No caption came back | The video may be private, deleted, region-locked, or have no caption |
+| `GOOGLE_PLACES_ERROR 400` / `401` / `403` | Google rejected your Maps key | Check `GOOGLE_MAPS_API_KEY`, and that **Places API (New)** (not the older "Places API") and billing are enabled for its project |
+| `GOOGLE_PLACES_ERROR 429` | Maps quota used up | Wait, or raise the quota in Google Cloud Console |
+| `GOOGLE_PLACES_CONNECTION_ERROR` | Couldn't reach Google Maps | Check your connection |
+
+To try the app without any keys, leave `AI_PROVIDER=` empty for demo mode.
 
 ## Good to know
 

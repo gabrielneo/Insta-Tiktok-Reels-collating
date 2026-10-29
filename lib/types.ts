@@ -19,6 +19,28 @@ export interface Recommendation {
   recommended_activities: string;
   price_range: PriceRange;
   rating_or_notes: string;
+  /** Set after "Find on Google Maps" runs for this entry. */
+  geo?: GeocodeResult;
+}
+
+export type GeocodeResult =
+  | {
+      status: "found";
+      lat: number;
+      lng: number;
+      place_id: string;
+      matched_name: string;
+      formatted_address: string;
+      maps_url: string;
+    }
+  | { status: "not_found" }
+  | { status: "error"; reason: string };
+
+/** Which optional services the server has keys for (never the keys themselves). */
+export interface ServiceStatus {
+  ai: boolean;
+  apify: boolean;
+  maps: boolean;
 }
 
 export interface ParseReelsSuccess {

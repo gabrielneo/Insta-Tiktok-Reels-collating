@@ -1,14 +1,23 @@
 import * as XLSX from "xlsx";
 import type { Recommendation } from "./types";
 
-const COLUMN_HEADERS: { key: keyof Recommendation; header: string; width: number }[] = [
-  { key: "place_name", header: "Place Name", width: 28 },
-  { key: "category", header: "Category", width: 16 },
-  { key: "location", header: "Location", width: 24 },
-  { key: "recommended_activities", header: "Recommended Activities", width: 42 },
-  { key: "price_range", header: "Price Range", width: 12 },
-  { key: "rating_or_notes", header: "Notes / Highlights", width: 40 },
-  { key: "reel_url", header: "Source Link", width: 38 },
+const COLUMN_HEADERS: {
+  header: string;
+  width: number;
+  value: (rec: Recommendation) => string | number;
+}[] = [
+  { header: "Place Name", width: 28, value: (rec) => rec.place_name },
+  { header: "Category", width: 16, value: (rec) => rec.category },
+  { header: "Location", width: 24, value: (rec) => rec.location },
+  { header: "Recommended Activities", width: 42, value: (rec) => rec.recommended_activities },
+  { header: "Price Range", width: 12, value: (rec) => rec.price_range },
+  { header: "Notes / Highlights", width: 40, value: (rec) => rec.rating_or_notes },
+  { header: "Source Link", width: 38, value: (rec) => rec.reel_url },
+  // Filled in after "Find on Google Maps"; blank otherwise.
+  { header: "Address", width: 36, value: (rec) => (rec.geo?.status === "found" ? rec.geo.formatted_address : "") },
+  { header: "Latitude", width: 12, value: (rec) => (rec.geo?.status === "found" ? rec.geo.lat : "") },
+  { header: "Longitude", width: 12, value: (rec) => (rec.geo?.status === "found" ? rec.geo.lng : "") },
+  { header: "Google Maps Link", width: 38, value: (rec) => (rec.geo?.status === "found" ? rec.geo.maps_url : "") },
 ];
 
 /**
@@ -23,7 +32,7 @@ export function exportRecommendationsToExcel(
 
   const headerRow = COLUMN_HEADERS.map((c) => c.header);
   const dataRows = recommendations.map((rec) =>
-    COLUMN_HEADERS.map((c) => rec[c.key] ?? "")
+    COLUMN_HEADERS.map((c) => c.value(rec) ?? "")
   );
 
   const worksheet = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);

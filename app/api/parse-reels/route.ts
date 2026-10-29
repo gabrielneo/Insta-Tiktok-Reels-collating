@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { generateJson, isAiConfigured } from "@/lib/llm";
+import { describeError } from "@/lib/errorMessages";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -24,6 +25,11 @@ import { generateJson, isAiConfigured } from "@/lib/llm";
 //
 // All keys come from the validated `env` object (lib/env.ts) — never read
 // process.env directly in this file.
+
+// A full batch of 50 links can take about 8-27 minutes. Hosting platforms cut
+// requests off sooner (this asks for 5 minutes where the plan allows it), so
+// large batches are best run locally or split into smaller ones.
+export const maxDuration = 300;
 
 const MAX_URLS_PER_REQUEST = 50;
 const MAX_APIFY_URLS_PER_RUN = 5;
@@ -60,9 +66,10 @@ const PLATFORMS: Record<
   },
   tiktok: {
     // www.tiktok.com/@user/video/123, /@user/photo/123, tiktok.com/t/abc,
-    // vm.tiktok.com/abc and vt.tiktok.com/abc
+    // vm.tiktok.com/abc, vt.tiktok.com/abc, and tiktokv.com/share/video/123
+    // (the format TikTok uses in "Download your data" exports)
     pattern:
-      /^https?:\/\/((www|m)\.)?tiktok\.com\/(@[^/\s]+\/(video|photo)\/\d+|t\/[^/\s]+)|^https?:\/\/(vm|vt)\.tiktok\.com\/[^/\s]+/i,
+      /^https?:\/\/((www|m)\.)?tiktok\.com\/(@[^/\s]+\/(video|photo)\/\d+|t\/[^/\s]+)|^https?:\/\/(vm|vt)\.tiktok\.com\/[^/\s]+|^https?:\/\/(www\.)?tiktokv\.com\/share\/video\/\d+/i,
     getVideoId: (url) => url.match(/\/(?:video|photo)\/(\d+)/)?.[1] ?? "",
     actorId: "clockworks~tiktok-scraper",
     // Captions only: every paid add-on (downloads, comments, AI summaries) off.
@@ -166,17 +173,22 @@ async function runApifyActor(
 ): Promise<Record<string, unknown>[]> {
   // Token goes in the Authorization header, not the query string, so it
   // never lands in proxy/access logs or error traces that include the URL.
-  const response = await fetch(
-    `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.APIFY_API_TOKEN}`,
-      },
-      body: JSON.stringify(input),
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.APIFY_API_TOKEN}`,
+        },
+        body: JSON.stringify(input),
+      }
+    );
+  } catch {
+    throw new Error("APIFY_CONNECTION_ERROR");
+  }
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -429,12 +441,12 @@ function buildFallbackResult(reelUrl: string, index: number): Recommendation {
 }
 
 // Upstream error messages carry raw provider response bodies (needed for
-// the token-limit retry check). Log those server-side and send the client
-// only the error code and HTTP status, e.g. "AI_ERROR: 401".
+// the token-limit retry check). Log those server-side and send the client a
+// plain-English explanation instead, e.g. "Your AI API key was rejected…".
 function toClientReason(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   console.error(`[parse-reels] ${err.message}`);
-  return err.message.match(/^[A-Z_]+(: \d{3})?/)?.[0] ?? fallback;
+  return describeError(err.message) ?? fallback;
 }
 
 // ---------------------------------------------------------------------------

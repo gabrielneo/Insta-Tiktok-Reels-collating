@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Compass, Plus, Loader2, AlertTriangle, Info, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Compass, Plus, Loader2, AlertTriangle, Info, X, Clock } from "lucide-react";
 import RecommendationsTable from "@/components/RecommendationsTable";
-import type { Recommendation } from "@/lib/types";
+import MapExportPanel, { placeKey } from "@/components/MapExportPanel";
+import { estimateExtraction, formatRange, formatSeconds } from "@/lib/estimate";
+import type { GeocodeResult, Recommendation, ServiceStatus } from "@/lib/types";
 
 interface FailedUrl {
   reel_url: string;
@@ -19,6 +21,31 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [usedFallback, setUsedFallback] = useState(false);
+  const [status, setStatus] = useState<ServiceStatus | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/status")
+      .then((response) => (response.ok ? response.json() : null))
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+
+  useEffect(() => {
+    if (startedAt === null) return;
+    const timer = setInterval(() => setElapsedSeconds((Date.now() - startedAt) / 1000), 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+
+  const handleGeocoded = (results: Map<string, GeocodeResult>) => {
+    setRecommendations((prev) =>
+      prev.map((rec) => {
+        const geo = results.get(placeKey(rec));
+        return geo ? { ...rec, geo } : rec;
+      })
+    );
+  };
 
   const bulkUrls = bulkInput
     .split("\n")
@@ -26,6 +53,7 @@ export default function Home() {
     .filter(Boolean);
 
   const allUrls = Array.from(new Set([...pendingUrls, ...bulkUrls]));
+  const expected = estimateExtraction(allUrls.length, status);
 
   const handleQuickAdd = () => {
     const trimmed = quickAddInput.trim();
@@ -47,6 +75,8 @@ export default function Home() {
     }
 
     setIsLoading(true);
+    setElapsedSeconds(0);
+    setStartedAt(Date.now());
     try {
       const response = await fetch("/api/parse-reels", {
         method: "POST",
@@ -74,6 +104,7 @@ export default function Home() {
       );
     } finally {
       setIsLoading(false);
+      setStartedAt(null);
     }
   };
 
@@ -195,6 +226,50 @@ export default function Home() {
               )}
             </button>
 
+            {isLoading ? (
+              <div className="mt-3 rounded-md border border-line bg-paper px-3 py-2 text-xs text-ink-soft">
+                <p className="flex items-center gap-1.5 font-medium text-ink">
+                  <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                  {formatSeconds(elapsedSeconds)} elapsed · expected {formatRange(expected)}
+                </p>
+                <p className="mt-1">
+                  Keep this tab open. Each video is scraped and then read by the AI model, so big
+                  batches take a while. Results appear all at once when the batch finishes.
+                </p>
+              </div>
+            ) : (
+              allUrls.length > 0 && (
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-ink-faint">
+                  <Clock className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+                  <span>
+                    Expected time for {allUrls.length} link{allUrls.length === 1 ? "" : "s"}:{" "}
+                    {formatRange(expected)}
+                    {status && !status.ai && " (demo mode, no AI model set)"}.
+                    {allUrls.length > 50 && " Max 50 links per batch, so split the rest into another run."}
+                  </span>
+                </p>
+              )
+            )}
+
+            <details className="mt-3 text-xs text-ink-soft">
+              <summary className="cursor-pointer font-medium hover:text-ink">
+                What to expect
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                <li>Up to 50 links per batch. Links are scraped 5 at a time.</li>
+                <li>
+                  Scraping a group of 5 usually takes 20–60 seconds, plus about 5–20 seconds per video
+                  for the AI model. 50 links can take about 8–27 minutes.
+                </li>
+                <li>
+                  Only the caption is read, not the audio or on-screen text. A video that never names
+                  the place in its caption won&rsquo;t produce a result.
+                </li>
+                <li>Private, deleted or region-locked videos can&rsquo;t be scraped and show as failed.</li>
+                <li>Scraping uses Apify credit and the AI model uses your provider&rsquo;s credit.</li>
+              </ul>
+            </details>
+
             {errorMessage && (
               <div className="mt-3 flex items-start gap-2 rounded-md border border-clay/30 bg-clay/5 px-3 py-2 text-xs text-clay">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
@@ -223,11 +298,26 @@ export default function Home() {
                 {failedUrls.length} link{failedUrls.length === 1 ? "" : "s"}{" "}
                 couldn&rsquo;t be processed
               </p>
-              <ul className="mt-2 flex flex-col gap-1.5">
-                {failedUrls.map((f) => (
-                  <li key={f.reel_url} className="text-xs text-ink-faint">
-                    <span className="truncate">{f.reel_url}</span>
-                    <span className="block text-clay">{f.reason}</span>
+              {/* Grouped by reason so one bad key doesn't repeat the same advice 50 times. */}
+              <ul className="mt-2 flex flex-col gap-3">
+                {Array.from(
+                  failedUrls.reduce((groups, f) => {
+                    groups.set(f.reason, [...(groups.get(f.reason) ?? []), f.reel_url]);
+                    return groups;
+                  }, new Map<string, string[]>())
+                ).map(([reason, urls]) => (
+                  <li key={reason} className="text-xs">
+                    <p className="flex items-start gap-1.5 text-clay">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
+                      <span>{reason}</span>
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-0.5 pl-5 text-ink-faint">
+                      {urls.map((url) => (
+                        <li key={url} className="truncate">
+                          {url}
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
               </ul>
@@ -236,7 +326,14 @@ export default function Home() {
         </section>
 
         {/* Results workspace */}
-        <section className="min-w-0 flex-1">
+        <section className="flex min-w-0 flex-1 flex-col gap-4">
+          {recommendations.length > 0 && (
+            <MapExportPanel
+              recommendations={recommendations}
+              status={status}
+              onGeocoded={handleGeocoded}
+            />
+          )}
           <RecommendationsTable recommendations={recommendations} />
         </section>
       </div>
