@@ -38,21 +38,47 @@ export to Excel.
 - 🗺️ **Put it on a map:** find every place on Google Maps and import the pins into your own Google My Maps
 - 🤖 **Use any AI model you like:** Claude, GPT, Gemini, Llama, Mistral, DeepSeek, or a free local model with Ollama
 
-## Try it in 1 minute (no keys needed)
+## See the demo first (no keys, no cost)
+
+Using your own videos needs API keys (see the next section). To see what the
+app does before you sign up for anything, run the built-in demo:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and paste any Reel or TikTok link. With no keys set, the app
-runs in **demo mode** and shows clearly labelled sample results, so you can
-try searching, filtering and exporting right away.
+Open http://localhost:3000 for the landing page and click **Try now**, or go straight to the app at http://localhost:3000/app and click
+**Start the guided demo** at the top of the page. A step-by-step guide runs Fieldnotes on 5 sample Reels and TikToks
+and explains each step as it happens. You only press **Next**; the guide does
+the clicking:
+
+1. **Paste:** sample links appear in the box, with how to copy your own
+2. **Extract:** the guide presses **Extract places** and you watch each stage
+   (checking links, fetching captions, the AI reading them), sped up
+3. **Browse:** 8 sample places across Tokyo, Bangkok, Singapore and Kuala
+   Lumpur, with search and category filters, plus one failed link so you can
+   see how errors are explained
+4. **Map it:** the guide presses **Find on Google Maps** and shows the pins
+   found (and one place that can't be found)
+5. **Keep a copy:** where to export to Excel or Google My Maps
+
+Afterwards you can keep exploring the sample results, replay the guide, or
+click **Skip to sample results** to jump straight to the end. Keyboard users
+can do the whole guide with Tab, Enter and Esc.
+
+The demo runs entirely in your browser with made-up data. It doesn't use any
+keys in `.env.local`, scrape anything, or cost anything. The sample links
+don't open real videos. Click **Exit demo**, or paste your own links, to leave
+it.
 
 ## Use it on your real videos
 
-You need two things: something to **read the videos** (Apify) and an **AI model**
-to summarise them.
+Your API keys only ever go into the `.env.local` file on your own computer.
+The app never asks you to type them into a web page. To run it on your own
+saved videos, you need three keys: **Apify** to read the videos, an **AI
+model** to summarise them, and **Google Maps** (with Places API (New) turned
+on) to put your places on the map.
 
 ```bash
 cp .env.example .env.local    # .env.local is git-ignored, so your keys stay on your machine
@@ -200,7 +226,7 @@ guide:
 | AI summarising | 5–20 s per video, depending on provider and model |
 | A full batch of 50 links | about 8–27 minutes |
 | Finding places on Google Maps | under a second per place |
-| Demo mode (no AI model set) | a few seconds |
+| The built-in demo | about 5 seconds |
 
 Keep the tab open while it runs; results appear when the whole batch finishes.
 If you deploy the app, note that hosting platforms cut off long requests (the
@@ -242,11 +268,33 @@ Every recommendation ends up in this shape:
 }
 ```
 
+## Landing page
+
+`/` is a scroll-driven 3D landing page; the app itself lives at `/app`.
+
+- The 3D scene (`components/landing/Scene.tsx`) is built entirely in code with
+  React Three Fiber and drei: reel cards, a notebook, category tokens, and a
+  map with pins. There are no model files to download.
+- Scrolling is smoothed with Lenis and drives the camera through GSAP
+  ScrollTrigger. Each page section is a "chapter" with its own camera shot.
+- Devices get the scene they can handle (`components/landing/deviceTier.ts`):
+  - **Full:** desktops get post-processing and soft shadows.
+  - **Lighter:** phones and modest laptops get a lighter scene. It drops
+    resolution if the frame rate dips, and falls back to a still image if
+    the device keeps struggling.
+  - **Still illustration:** with reduced motion, Data Saver or no WebGL.
+- All text and buttons are real HTML on top of the canvas, so the page works
+  with screen readers and keyboards whatever the device.
+
+GSAP is free to use but under its own [Standard licence](https://gsap.com/standard-license),
+not MIT. Everything else the landing page uses is MIT or Zlib.
+
 ## Project structure
 
 ```
 app/
-  page.tsx                  — dashboard: input panel + results workspace
+  page.tsx                  — 3D landing page
+  app/page.tsx              — the app: input panel + results workspace
   layout.tsx                — fonts, metadata
   api/parse-reels/route.ts  — ingestion + AI extraction + validation
   api/geocode/route.ts      — Google Places lookups for the map export
@@ -254,11 +302,14 @@ app/
 components/
   RecommendationsTable.tsx  — search, category filters, export
   MapExportPanel.tsx        — Google Maps lookup, limitations, My Maps export
+  GuidedTour.tsx            — the guided demo's step-by-step tooltips (react-joyride)
+  landing/                  — landing page: Landing, Scene (3D), StaticScene, deviceTier, scrollState
 lib/
   aiProviders.ts            — list of supported AI providers and their settings
   llm.ts                    — one "give me JSON" call that works with any provider
   env.ts / envSchema.ts     — loads and checks .env values at startup
   excelExport.ts            — builds the .xlsx export in the browser (SheetJS)
+  demoData.ts               — sample links, results and map pins for the built-in demo
   myMapsExport.ts           — builds the CSV for Google My Maps import
   estimate.ts               — time estimates shown in the UI
   types.ts                  — shared Recommendation type
@@ -337,7 +388,7 @@ in brackets at the end tells you which service failed:
 | `GOOGLE_PLACES_ERROR 429` | Maps quota used up | Wait, or raise the quota in Google Cloud Console |
 | `GOOGLE_PLACES_CONNECTION_ERROR` | Couldn't reach Google Maps | Check your connection |
 
-To try the app without any keys, leave `AI_PROVIDER=` empty for demo mode.
+To see the app without any keys, click **Start the guided demo** at the top of the home page.
 
 ## Good to know
 

@@ -7,16 +7,29 @@ html {
 }
 
 body {
-  background-color: #f6f3ec;
-  color: #221f1a;
+  background-color: #f7f1e5;
+  color: #2a2219;
+  /* Never let wide content (the table) scroll the whole page sideways. */
+  overflow-x: hidden;
 }
 
 ::selection {
-  background-color: #b8862e;
-  color: #ffffff;
+  background-color: #fdf1d2;
+  color: #2a2219;
 }
 
-/* Thin, quiet scrollbars so the table doesn't feel like default browser chrome */
+/* One consistent, visible focus ring for every interactive element. */
+:focus-visible {
+  outline: 2px solid #2f5a43;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+textarea:focus-visible,
+input:focus-visible {
+  outline-offset: 0;
+}
+
+/* Quiet scrollbars so the table doesn't feel like default browser chrome. */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -25,23 +38,45 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: #ddd6c7;
+  background-color: #e2d6c1;
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #b8862e;
+  background-color: #c9b896;
 }
 
-/* Respect reduced motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+@layer components {
+  /* Notebook ruling behind the paste box; lines track the text's line height. */
+  .ruled-paper {
+    line-height: 1.75rem;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(1.75rem - 1px),
+      rgba(42, 34, 25, 0.08) calc(1.75rem - 1px),
+      rgba(42, 34, 25, 0.08) 1.75rem
+    );
+    background-attachment: local;
+    background-position: 0 0.5rem;
   }
+
+  /* Small-caps label used for section eyebrows. */
+  .eyebrow {
+    @apply text-meta font-semibold uppercase tracking-[0.08em] text-ink-faint;
+  }
+}
+
+/* Calm "still working" shimmer on the progress bar. */
+@keyframes progress-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.animate-progress-sheen {
+  animation: progress-sheen 2.4s ease-in-out infinite;
 }
 
 @keyframes spin-slow {
@@ -52,7 +87,21 @@ body {
     transform: rotate(360deg);
   }
 }
-
 .animate-spin-slow {
-  animation: spin-slow 0.8s linear infinite;
+  animation: spin-slow 1.2s linear infinite;
+}
+
+/* Respect reduced-motion: no shimmer, spin or animated widths. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-progress-sheen {
+    display: none;
+  }
 }

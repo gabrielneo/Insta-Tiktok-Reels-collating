@@ -1,10 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Clock, Download, ExternalLink, Loader2, MapPin } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Download,
+  ExternalLink,
+  Info,
+  Loader2,
+  MapPin,
+} from "lucide-react";
 import type { GeocodeResult, Recommendation, ServiceStatus } from "@/lib/types";
 import { estimateGeocoding, formatRange } from "@/lib/estimate";
 import { exportToMyMapsCsv } from "@/lib/myMapsExport";
+import { DEMO_GEO, DEMO_GEOCODE_MS, sleep } from "@/lib/demoData";
+import FailureReason from "./FailureReason";
 
 // Must match MAX_PLACES_PER_REQUEST in app/api/geocode/route.ts.
 const PLACES_PER_REQUEST = 25;
@@ -16,10 +28,17 @@ export function placeKey(rec: Pick<Recommendation, "place_name" | "location">): 
 interface MapExportPanelProps {
   recommendations: Recommendation[];
   status: ServiceStatus | null;
+  /** Use built-in sample coordinates instead of calling Google. */
+  demoMode?: boolean;
   onGeocoded: (results: Map<string, GeocodeResult>) => void;
 }
 
-export default function MapExportPanel({ recommendations, status, onGeocoded }: MapExportPanelProps) {
+export default function MapExportPanel({
+  recommendations,
+  status,
+  demoMode = false,
+  onGeocoded,
+}: MapExportPanelProps) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exportedCount, setExportedCount] = useState<number | null>(null);
@@ -46,7 +65,7 @@ export default function MapExportPanel({ recommendations, status, onGeocoded }: 
     return Array.from(reasons);
   }, [recommendations]);
 
-  const mapsReady = status?.maps === true;
+  const mapsReady = demoMode || status?.maps === true;
   const isRunning = progress !== null;
 
   const handleFind = async () => {
@@ -55,6 +74,15 @@ export default function MapExportPanel({ recommendations, status, onGeocoded }: 
     setProgress({ done: 0, total: pending.length });
     const results = new Map<string, GeocodeResult>();
     try {
+      if (demoMode) {
+        for (const [index, [key, place]] of pending.entries()) {
+          await sleep(DEMO_GEOCODE_MS / pending.length);
+          results.set(key, DEMO_GEO[place.place_name] ?? { status: "not_found" });
+          setProgress({ done: index + 1, total: pending.length });
+        }
+        onGeocoded(new Map(results));
+        return;
+      }
       for (let i = 0; i < pending.length; i += PLACES_PER_REQUEST) {
         const chunk = pending.slice(i, i + PLACES_PER_REQUEST);
         const response = await fetch("/api/geocode", {
@@ -78,174 +106,249 @@ export default function MapExportPanel({ recommendations, status, onGeocoded }: 
   const handleExport = () => setExportedCount(exportToMyMapsCsv(recommendations));
 
   return (
-    <div className="rounded-lg border border-line bg-card p-5">
+    <section
+      aria-labelledby="map-panel-title"
+      className="rounded-xl border border-line bg-card p-5 shadow-card"
+    >
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-pine/10 text-pine">
-          <MapPin className="h-4 w-4" strokeWidth={2} />
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-pine-tint text-pine">
+          <MapPin className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="font-serif text-base font-semibold text-ink">Put it on a map</h2>
-          <p className="mt-1 text-xs text-ink-soft">
-            Look up every place on Google Maps, then import the pins into your own{" "}
+          <h2 id="map-panel-title" className="font-serif text-section font-semibold text-ink">
+            Put it on a map
+          </h2>
+          <p className="mt-0.5 text-body text-ink-soft">
+            Find every place on Google Maps, then import the pins into your own{" "}
             <a
               href="https://www.google.com/maps/d/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-pine hover:underline"
+              className="font-medium text-pine underline underline-offset-2 hover:text-pine-dark"
             >
-              Google My Maps
-            </a>{" "}
-            map.
+              Google My Maps<span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            .
           </p>
         </div>
       </div>
 
       {!mapsReady ? (
-        <div className="mt-4 flex items-start gap-2 rounded-md border border-brass/30 bg-brass/5 px-3 py-2 text-xs text-brass-dark">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
-          <span>
-            Google Maps lookup isn&rsquo;t set up. Add{" "}
-            <code className="rounded bg-paper px-1 py-0.5">GOOGLE_MAPS_API_KEY</code> to{" "}
-            <code className="rounded bg-paper px-1 py-0.5">.env.local</code> (a Google Cloud key with
-            the Places API (New) enabled) and restart the server.
-          </span>
+        <div className="mt-4 flex items-start gap-2.5 rounded-lg bg-saffron-bg px-3.5 py-3 text-body text-ink-soft">
+          <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-saffron-text" strokeWidth={2} aria-hidden="true" />
+          <p>
+            <span className="font-semibold text-saffron-text">Map lookup isn&rsquo;t set up yet.</span>{" "}
+            Add <code className="rounded-sm bg-card px-1 py-px font-mono text-meta">GOOGLE_MAPS_API_KEY</code> to{" "}
+            <code className="rounded-sm bg-card px-1 py-px font-mono text-meta">.env.local</code> (a Google
+            Cloud key with Places API (New) enabled), then restart the server.
+          </p>
         </div>
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               onClick={handleFind}
+              data-tour="map-find"
               disabled={isRunning || pending.length === 0}
-              className="inline-flex items-center gap-2 rounded-md bg-pine px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-pine-dark disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-md bg-pine px-4 py-2 text-body font-medium text-white shadow-card transition-colors hover:bg-pine-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isRunning ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin-slow" strokeWidth={2} />
-                  Finding {progress.done}/{progress.total}…
+                  <Loader2 className="h-4 w-4 animate-spin-slow" strokeWidth={2} aria-hidden="true" />
+                  Finding places…
+                </>
+              ) : pending.length === 0 ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  All places found
                 </>
               ) : (
                 <>
-                  <MapPin className="h-4 w-4" strokeWidth={2} />
-                  {pending.length === 0
-                    ? "All places found"
-                    : `Find ${pending.length} place${pending.length === 1 ? "" : "s"} on Google Maps`}
+                  <MapPin className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  Find on Google Maps
+                  <span className="font-normal text-white/85">
+                    ({pending.length} place{pending.length === 1 ? "" : "s"})
+                  </span>
                 </>
               )}
             </button>
             <button
               onClick={handleExport}
               disabled={isRunning || counts.found === 0}
-              className="inline-flex items-center gap-2 rounded-md border border-line bg-paper px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-pine/40 hover:text-pine disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-md border border-pine bg-card px-4 py-2 text-body font-medium text-pine transition-colors hover:bg-pine-tint disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
             >
-              <Download className="h-4 w-4" strokeWidth={2} />
-              Download for My Maps (.csv)
+              <Download className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+              Download for My Maps
+              <span className="text-meta font-normal text-ink-soft">.csv</span>
             </button>
           </div>
 
+          {isRunning && (
+            <div className="mt-3" role="status" aria-live="polite">
+              <div className="flex items-center justify-between text-meta text-ink-soft">
+                <span>Looking up places on Google Maps…</span>
+                <span className="font-medium tabular-nums text-ink">
+                  {progress.done} / {progress.total}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
+                <div
+                  className="h-full rounded-full bg-pine transition-[width] duration-500"
+                  style={{ width: `${progress.total ? Math.max(4, (progress.done / progress.total) * 100) : 4}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {pending.length > 0 && !isRunning && (
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-faint">
-              <Clock className="h-3.5 w-3.5" strokeWidth={2} />
-              Expected time: {formatRange(estimateGeocoding(pending.length))}. One Google lookup per
-              place.
+            <p className="mt-2 flex items-center gap-1.5 text-meta text-ink-faint">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} aria-hidden="true" />
+              {demoMode
+                ? "Demo: uses built-in sample coordinates, so no Google key or cost."
+                : `Expected time: ${formatRange(estimateGeocoding(pending.length))}. One Google lookup per place.`}
             </p>
           )}
 
           {(counts.found > 0 || counts.not_found > 0 || counts.error > 0) && (
-            <p className="mt-2 text-xs text-ink-soft">
-              <span className="font-medium text-pine">{counts.found} found</span>
-              {counts.not_found > 0 && <> · {counts.not_found} not found</>}
-              {counts.error > 0 && <span className="text-clay"> · {counts.error} failed</span>}
-              {counts.unchecked > 0 && <> · {counts.unchecked} not checked yet</>}
-            </p>
+            <ul className="mt-3 flex flex-wrap gap-1.5 text-meta" aria-label="Lookup results">
+              <li className="rounded-full bg-pine-tint px-2.5 py-0.5 font-medium text-pine">
+                {counts.found} found
+              </li>
+              {counts.not_found > 0 && (
+                <li className="rounded-full bg-sunken px-2.5 py-0.5 text-ink-soft">
+                  {counts.not_found} not found
+                </li>
+              )}
+              {counts.error > 0 && (
+                <li className="rounded-full bg-berry-bg px-2.5 py-0.5 font-medium text-berry-text">
+                  {counts.error} failed
+                </li>
+              )}
+              {counts.unchecked > 0 && (
+                <li className="rounded-full bg-sunken px-2.5 py-0.5 text-ink-soft">
+                  {counts.unchecked} not checked yet
+                </li>
+              )}
+            </ul>
           )}
 
           {failureReasons.map((reason) => (
             <div
               key={reason}
-              className="mt-2 flex items-start gap-2 rounded-md border border-clay/30 bg-clay/5 px-3 py-2 text-xs text-clay"
+              role="alert"
+              className="mt-3 flex items-start gap-2.5 rounded-lg bg-berry-bg px-3.5 py-3 text-body text-ink-soft"
             >
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
-              <span>{reason}</span>
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-berry-text" strokeWidth={2} aria-hidden="true" />
+              <p>
+                <FailureReason reason={reason} />
+              </p>
             </div>
           ))}
 
           {exportedCount !== null && (
-            <div className="mt-3 rounded-md border border-pine/25 bg-pine/5 px-3 py-2 text-xs text-ink-soft">
-              <p className="font-medium text-pine-dark">
-                Downloaded {exportedCount} place{exportedCount === 1 ? "" : "s"}. To add them to My Maps:
+            <div className="mt-3 rounded-lg border border-pine/25 bg-pine-tint/60 px-4 py-3 text-body text-ink-soft" role="status">
+              <p className="flex items-center gap-1.5 font-semibold text-pine-dark">
+                <CheckCircle2 className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                Downloaded {exportedCount} place{exportedCount === 1 ? "" : "s"}. Now add them to My Maps:
               </p>
-              <ol className="mt-1.5 list-decimal space-y-0.5 pl-4">
-                <li>
-                  Open{" "}
-                  <a
-                    href="https://www.google.com/maps/d/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-0.5 text-pine hover:underline"
-                  >
-                    Google My Maps <ExternalLink className="h-3 w-3" strokeWidth={2} />
-                  </a>{" "}
-                  and create a map (or open an existing one).
-                </li>
-                <li>Click <strong>Add layer</strong>, then <strong>Import</strong> in the new layer.</li>
-                <li>Upload the downloaded .csv file.</li>
-                <li>Tick <strong>Latitude</strong> and <strong>Longitude</strong> for pin positions, then pick <strong>Name</strong> as the title.</li>
-                <li>Optional: style the layer by <strong>Category</strong> to colour-code the pins.</li>
+              <ol className="mt-2 space-y-1.5">
+                {[
+                  <>
+                    Open{" "}
+                    <a
+                      href="https://www.google.com/maps/d/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-0.5 font-medium text-pine underline underline-offset-2"
+                    >
+                      Google My Maps
+                      <ExternalLink className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
+                      <span className="sr-only">(opens in a new tab)</span>
+                    </a>{" "}
+                    and create or open a map.
+                  </>,
+                  <>
+                    Click <strong className="text-ink">Add layer</strong>, then{" "}
+                    <strong className="text-ink">Import</strong>.
+                  </>,
+                  <>Upload the .csv you just downloaded.</>,
+                  <>
+                    Tick <strong className="text-ink">Latitude</strong> and{" "}
+                    <strong className="text-ink">Longitude</strong>, then choose{" "}
+                    <strong className="text-ink">Name</strong> as the title.
+                  </>,
+                  <>
+                    Optional: style by <strong className="text-ink">Category</strong> to colour-code
+                    the pins.
+                  </>,
+                ].map((step, index) => (
+                  <li key={index} className="flex gap-2.5">
+                    <span
+                      aria-hidden="true"
+                      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-pine text-[0.6875rem] font-semibold text-white"
+                    >
+                      {index + 1}
+                    </span>
+                    <span>
+                      <span className="sr-only">Step {index + 1}: </span>
+                      {step}
+                    </span>
+                  </li>
+                ))}
               </ol>
             </div>
           )}
 
           {error && (
-            <div className="mt-3 flex items-start gap-2 rounded-md border border-clay/30 bg-clay/5 px-3 py-2 text-xs text-clay">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" strokeWidth={2} />
-              <span>{error}</span>
+            <div role="alert" className="mt-3 flex items-start gap-2.5 rounded-lg bg-berry-bg px-3.5 py-3 text-body text-ink-soft">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-berry-text" strokeWidth={2} aria-hidden="true" />
+              <p>
+                <FailureReason reason={error} />
+              </p>
             </div>
           )}
         </>
       )}
 
-      <details className="mt-4 text-xs text-ink-soft">
-        <summary className="cursor-pointer font-medium text-ink-soft hover:text-ink">
-          Limitations — read before you rely on the pins
+      <details className="group mt-4 border-t border-line pt-3">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-meta font-medium text-ink-soft hover:text-ink [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            className="h-3.5 w-3.5 transition-transform group-open:rotate-90"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          Good to know before you rely on the pins
         </summary>
-        <ul className="mt-2 list-disc space-y-1 pl-4">
-          <li>
-            <strong>No automatic upload.</strong> Google My Maps has no public API for adding pins,
-            so you import the downloaded file yourself (about 30 seconds).
-          </li>
-          <li>
-            <strong>Matches are a best guess.</strong> Each place is searched by name plus location.
-            Chains, closed venues, or places listed as &ldquo;Unknown&rdquo; location can land on the
-            wrong branch or city, so check the pins.
-          </li>
-          <li>
-            <strong>Lookups cost money past the free tier.</strong> Every place is a billable Places
-            API request on your Google Cloud account. Google includes a monthly free allowance; see{" "}
-            <a
-              href="https://developers.google.com/maps/billing-and-pricing/pricing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-pine hover:underline"
-            >
-              current pricing
-            </a>
-            . Duplicates are looked up only once.
-          </li>
-          <li>
-            <strong>Coordinates are short-lived.</strong> Google&rsquo;s terms allow keeping
-            latitude/longitude from the Places API for up to 30 days. Re-run the lookup for an older
-            list instead of reusing an old file.
-          </li>
-          <li>
-            <strong>My Maps limits.</strong> Up to 2,000 rows per imported layer and 10 layers per
-            map. Split bigger lists across layers (for example, one per city).
-          </li>
-          <li>
-            <strong>Nothing is saved.</strong> Results live in this browser tab. Refreshing the page
-            clears them, so export before you close it.
-          </li>
-        </ul>
+        <dl className="mt-3 grid gap-x-6 gap-y-2.5 text-meta text-ink-soft sm:grid-cols-2">
+          {[
+            ["No automatic upload", "My Maps has no API for adding pins, so you import the file yourself (about 30 seconds)."],
+            ["Matches are a best guess", "Chains, closed venues or “Unknown” locations can land on the wrong branch. Check the pins."],
+            ["Lookups can cost money", "Each distinct place is one Places API request, after Google’s monthly free allowance."],
+            ["Coordinates are short-lived", "Google lets you keep them for up to 30 days. Re-run the lookup for an old list."],
+            ["My Maps limits", "Up to 2,000 rows per layer and 10 layers per map. Split big lists, e.g. one layer per city."],
+            ["Nothing is saved", "Results live in this tab. Refreshing clears them, so export first."],
+          ].map(([term, detail]) => (
+            <div key={term}>
+              <dt className="font-semibold text-ink">{term}</dt>
+              <dd>{detail}</dd>
+            </div>
+          ))}
+          <div className="sm:col-span-2">
+            <dd>
+              See{" "}
+              <a
+                href="https://developers.google.com/maps/billing-and-pricing/pricing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-pine underline underline-offset-2"
+              >
+                Google&rsquo;s current pricing<span className="sr-only"> (opens in a new tab)</span>
+              </a>
+              . Duplicates are only looked up once.
+            </dd>
+          </div>
+        </dl>
       </details>
-    </div>
+    </section>
   );
 }
