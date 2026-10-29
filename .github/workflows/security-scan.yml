@@ -1,0 +1,60 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly re-audit: new CVEs are published against unchanged code.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # lets the action list a PR's commits
+    steps:
+      # Actions are pinned to full commit SHAs (tag in the comment) so a moved
+      # or compromised tag can't change what runs. Dependabot bumps them.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # full history, so secrets in older commits are caught
+
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          # Personal-account repos need no license. If this repo moves to a
+          # GitHub organization, add a free key from gitleaks.io as a secret:
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  dependency-audit:
+    name: Dependency audit (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # --ignore-scripts: never run third-party install scripts in CI.
+      - run: npm ci --ignore-scripts
+
+      - name: Full report (informational, includes dev tooling)
+        run: npm audit || true
+
+      - name: Fail on high/critical vulnerabilities in production dependencies
+        run: npm audit --omit=dev --audit-level=high

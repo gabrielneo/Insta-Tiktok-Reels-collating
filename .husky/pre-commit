@@ -1,0 +1,20 @@
+# Pre-commit secret guard. Bypassing with --no-verify is NOT safe: CI runs
+# the same gitleaks scan and will fail the push.
+
+# 1. Block secret-bearing files outright, even if force-added past .gitignore.
+blocked=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '(^|/)(\.env(\..+)?|.+\.(pem|key|p12|pfx)|id_(rsa|ed25519)[^/]*)$' \
+  | grep -vE '(^|/)\.env\.example$' || true)
+if [ -n "$blocked" ]; then
+  echo "pre-commit: refusing to commit secret files:"
+  echo "$blocked" | sed 's/^/  - /'
+  echo "Unstage them with: git rm --cached <file>"
+  exit 1
+fi
+
+# 2. Scan staged content for secrets.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed. Install it with: brew install gitleaks"
+  exit 1
+fi
+gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
