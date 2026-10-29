@@ -7,8 +7,8 @@ import {
   type PriceRange,
 } from "@/lib/types";
 import { z } from "zod";
-import { env } from "@/lib/env";
-import { generateJson, isAiConfigured } from "@/lib/llm";
+import { generateJson } from "@/lib/llm";
+import { serverCredentials, type AiCredentials } from "@/lib/credentials";
 import { describeError } from "@/lib/errorMessages";
 
 // ---------------------------------------------------------------------------
@@ -16,15 +16,17 @@ import { describeError } from "@/lib/errorMessages";
 // ---------------------------------------------------------------------------
 // This route is written to work out of the box with no keys configured
 // (it returns clearly-labelled fallback sample data), and to upgrade
-// automatically to real extraction once AI_PROVIDER is set. Any supported
+// automatically to real extraction once an AI key is available. Any supported
 // model can do the extraction — see lib/aiProviders.ts.
 //
-// Real ingestion can optionally use APIFY_API_TOKEN when you want to fetch
+// Real ingestion can optionally use an Apify token when you want to fetch
 // reel captions/transcripts via an Apify actor. The rest of the pipeline
 // (LLM structuring, validation, response shape) does not need to change.
 //
-// All keys come from the validated `env` object (lib/env.ts) — never read
-// process.env directly in this file.
+// Keys come from serverCredentials (lib/credentials.ts), which hands out the
+// .env keys only under `npm run dev` or USE_SERVER_KEYS=true, so a public
+// deployment never spends them. Never read process.env or `env` directly in
+// this file.
 
 // A full batch of 50 links can take about 8-27 minutes. Hosting platforms cut
 // requests off sooner (this asks for 5 minutes where the plan allows it), so
@@ -120,10 +122,13 @@ function getItemText(item: Record<string, unknown>): string {
   return text.trim();
 }
 
-async function fetchReelTranscripts(urls: string[]): Promise<Map<string, string>> {
+async function fetchReelTranscripts(
+  urls: string[],
+  apifyToken: string | undefined
+): Promise<Map<string, string>> {
   const transcripts = new Map<string, string>();
 
-  if (!env.APIFY_API_TOKEN) {
+  if (!apifyToken) {
     for (const url of urls) {
       const platform = detectPlatform(url) ?? "instagram";
       const videoId = PLATFORMS[platform].getVideoId(url) || "unknown";
@@ -145,7 +150,7 @@ async function fetchReelTranscripts(urls: string[]): Promise<Map<string, string>
 
   for (const [platform, platformUrls] of urlsByPlatform) {
     const config = PLATFORMS[platform];
-    const items = await runApifyActor(config.actorId, config.buildInput(platformUrls));
+    const items = await runApifyActor(apifyToken, config.actorId, config.buildInput(platformUrls));
 
     const itemsByVideoId = new Map<string, Record<string, unknown>>();
     for (const item of items) {
@@ -168,6 +173,7 @@ async function fetchReelTranscripts(urls: string[]): Promise<Map<string, string>
 }
 
 async function runApifyActor(
+  token: string,
   actorId: string,
   input: Record<string, unknown>
 ): Promise<Record<string, unknown>[]> {
@@ -181,7 +187,7 @@ async function runApifyActor(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${env.APIFY_API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(input),
       }
@@ -252,10 +258,11 @@ If the text contains no identifiable place or activity, return { "items": [] } f
 Do not invent specific facts (prices, hours) that are not implied by the text — use "N/A" or reasonable general phrasing instead.`;
 
 async function extractTranscriptChunk(
+  ai: AiCredentials,
   reelUrl: string,
   transcript: string
 ): Promise<Recommendation[]> {
-  const parsed = (await generateJson({
+  const parsed = (await generateJson(ai, {
     system: EXTRACTION_SYSTEM_PROMPT,
     user: `Video URL: ${reelUrl}\n\nCaption/transcript text:\n${transcript}`,
     schema: ExtractionSchema,
@@ -301,11 +308,12 @@ function isContextLimitError(error: unknown): boolean {
 }
 
 async function extractChunkWithRetry(
+  ai: AiCredentials,
   reelUrl: string,
   transcript: string
 ): Promise<Recommendation[]> {
   try {
-    return await extractTranscriptChunk(reelUrl, transcript);
+    return await extractTranscriptChunk(ai, reelUrl, transcript);
   } catch (error) {
     if (!isContextLimitError(error) || transcript.length <= MIN_AI_CHUNK_CHARS) {
       throw error;
@@ -314,20 +322,21 @@ async function extractChunkWithRetry(
     const smallerChunks = splitTranscript(transcript, Math.floor(transcript.length / 2));
     const results: Recommendation[] = [];
     for (const chunk of smallerChunks) {
-      results.push(...(await extractChunkWithRetry(reelUrl, chunk)));
+      results.push(...(await extractChunkWithRetry(ai, reelUrl, chunk)));
     }
     return results;
   }
 }
 
 async function extractWithLLM(
+  ai: AiCredentials,
   reelUrl: string,
   transcript: string,
   onChunkComplete?: (results: Recommendation[]) => void
 ): Promise<Recommendation[]> {
   const results: Recommendation[] = [];
   for (const chunk of splitTranscript(transcript, MAX_AI_INPUT_CHARS)) {
-    const chunkResults = await extractChunkWithRetry(reelUrl, chunk);
+    const chunkResults = await extractChunkWithRetry(ai, reelUrl, chunk);
     results.push(...chunkResults);
     onChunkComplete?.(chunkResults);
   }
@@ -453,6 +462,8 @@ function toClientReason(err: unknown, fallback: string): string {
 // Route handler
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
+  const { ai, apifyToken } = serverCredentials();
+
   let body: ParseReelsRequestBody;
   try {
     body = await request.json();
@@ -512,7 +523,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const usedFallback = !isAiConfigured();
+  const usedFallback = !ai;
   const results: Recommendation[] = [];
   const resultKeys = new Set<string>();
 
@@ -529,7 +540,7 @@ export async function POST(request: NextRequest) {
   for (let i = 0; i < validUrls.length; i += MAX_APIFY_URLS_PER_RUN) {
     const batch = validUrls.slice(i, i + MAX_APIFY_URLS_PER_RUN);
 
-    if (usedFallback) {
+    if (!ai) {
       for (const [offset, url] of batch.entries()) {
         storeResults([buildFallbackResult(url, i + offset)]);
       }
@@ -538,7 +549,7 @@ export async function POST(request: NextRequest) {
 
     let transcripts: Map<string, string>;
     try {
-      transcripts = await fetchReelTranscripts(batch);
+      transcripts = await fetchReelTranscripts(batch, apifyToken);
     } catch (err) {
       const reason = toClientReason(err, "Apify ingestion error.");
       for (const url of batch) {
@@ -556,7 +567,7 @@ export async function POST(request: NextRequest) {
           throw new Error("APIFY_EMPTY_RESPONSE");
         }
 
-        await extractWithLLM(url, transcript, (chunkResults) => {
+        await extractWithLLM(ai, url, transcript, (chunkResults) => {
           extractedCount += chunkResults.length;
           storeResults(chunkResults);
         });

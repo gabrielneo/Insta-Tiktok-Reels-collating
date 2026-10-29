@@ -3,14 +3,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { z } from "zod";
 import { AI_PROVIDERS } from "./aiProviders";
-import { env } from "./env";
+import type { AiCredentials } from "./credentials";
 
 // ---------------------------------------------------------------------------
 // Provider-agnostic "give me JSON" call
 // ---------------------------------------------------------------------------
 // Callers describe what they want (system prompt, user text, Zod schema) and
-// get back the parsed JSON object. Which model answers is decided entirely by
-// AI_PROVIDER / AI_MODEL in the environment.
+// get back the parsed JSON object. Which model answers, and whose key pays,
+// comes from the AiCredentials passed in (see lib/credentials.ts).
 //
 // Errors are thrown with a stable code prefix the API route relies on:
 //   AI_ERROR: <status> <detail>   provider returned an HTTP error
@@ -28,32 +28,29 @@ export interface JsonRequest<T extends z.ZodType> {
   schema: T;
 }
 
-export function isAiConfigured(): boolean {
-  return Boolean(env.AI_PROVIDER);
-}
-
-export async function generateJson<T extends z.ZodType>(request: JsonRequest<T>): Promise<unknown> {
-  if (!env.AI_PROVIDER) throw new Error("AI_NOT_CONFIGURED");
-  const preset = AI_PROVIDERS[env.AI_PROVIDER];
+export async function generateJson<T extends z.ZodType>(
+  ai: AiCredentials,
+  request: JsonRequest<T>
+): Promise<unknown> {
+  const preset = AI_PROVIDERS[ai.provider];
   return preset.api === "anthropic"
-    ? generateWithAnthropic(request)
-    : generateWithOpenAICompatible(preset, request);
+    ? generateWithAnthropic(ai, request)
+    : generateWithOpenAICompatible(ai, preset, request);
 }
 
 // ---------------------------------------------------------------------------
 // Anthropic (Claude) — official SDK with structured outputs
 // ---------------------------------------------------------------------------
-let anthropicClient: Anthropic | undefined;
-
-function getAnthropicClient(): Anthropic {
-  anthropicClient ??= new Anthropic({ apiKey: env.AI_API_KEY, baseURL: env.AI_BASE_URL });
-  return anthropicClient;
-}
-
-async function generateWithAnthropic<T extends z.ZodType>(request: JsonRequest<T>): Promise<unknown> {
+// A client per call rather than a shared one, because the key can differ on
+// every request (each visitor brings their own).
+async function generateWithAnthropic<T extends z.ZodType>(
+  ai: AiCredentials,
+  request: JsonRequest<T>
+): Promise<unknown> {
+  const client = new Anthropic({ apiKey: ai.apiKey, baseURL: ai.baseUrl });
   try {
-    const response = await getAnthropicClient().beta.messages.parse({
-      model: env.AI_MODEL!,
+    const response = await client.beta.messages.parse({
+      model: ai.model,
       max_tokens: MAX_OUTPUT_TOKENS,
       // If the model declines for policy reasons, let the API retry on its
       // recommended fallback model. Models without fallbacks just run alone.
@@ -88,13 +85,14 @@ type OpenAICompatiblePreset = Extract<
 >;
 
 async function generateWithOpenAICompatible<T extends z.ZodType>(
+  ai: AiCredentials,
   preset: OpenAICompatiblePreset,
   request: JsonRequest<T>
 ): Promise<unknown> {
-  const baseUrl = (env.AI_BASE_URL ?? preset.baseUrl).replace(/\/+$/, "");
+  const baseUrl = (ai.baseUrl ?? preset.baseUrl).replace(/\/+$/, "");
 
   const body: Record<string, unknown> = {
-    model: env.AI_MODEL,
+    model: ai.model,
     [preset.tokenParam]: MAX_OUTPUT_TOKENS,
     messages: [
       { role: "system", content: request.system },
@@ -110,7 +108,7 @@ async function generateWithOpenAICompatible<T extends z.ZodType>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(env.AI_API_KEY ? { Authorization: `Bearer ${env.AI_API_KEY}` } : {}),
+        ...(ai.apiKey ? { Authorization: `Bearer ${ai.apiKey}` } : {}),
       },
       body: JSON.stringify(body),
     });
@@ -119,7 +117,10 @@ async function generateWithOpenAICompatible<T extends z.ZodType>(
   }
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+    // Rejected-key bodies can echo part of the key, and this message is
+    // logged, so keep only the status for those.
+    const keyRejected = response.status === 401 || response.status === 403;
+    const detail = keyRejected ? "" : await response.text().catch(() => "");
     throw new Error(`AI_ERROR: ${response.status} ${detail.slice(0, 200)}`);
   }
 

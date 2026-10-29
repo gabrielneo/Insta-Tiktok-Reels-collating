@@ -29,6 +29,17 @@ export const envSchema = z
       .enum(["development", "test", "production"])
       .default("development"),
 
+    // Production builds (a deployed copy) ignore every key below unless this
+    // is "true", so a public site only ever runs the demo. `npm run dev`
+    // always uses them.
+    USE_SERVER_KEYS: z.preprocess(
+      emptyToUndefined,
+      z
+        .enum(["true", "false"], "must be true or false")
+        .default("false")
+        .transform((value) => value === "true")
+    ),
+
     AI_PROVIDER: z.preprocess(emptyToUndefined, z.enum(AI_PROVIDER_IDS).optional()),
 
     AI_API_KEY: optionalSecret(

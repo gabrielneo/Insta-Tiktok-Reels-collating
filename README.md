@@ -316,11 +316,29 @@ lib/
 instrumentation.ts          — runs the env check when the server boots
 ```
 
+## Deploying it publicly
+
+A deployed copy only runs the demo and never spends **your** keys. Production
+builds ignore every key in the server's environment (including a stray
+`.env.local`) unless `USE_SERVER_KEYS=true`, so anyone who wants to read
+their own videos has to clone this repo and run it with their own keys.
+
+1. Don't add any `AI_*`, `APIFY_API_TOKEN` or `GOOGLE_MAPS_API_KEY` to your
+   host's environment variables. No environment variables are needed at all.
+2. Deploy as usual, e.g. import the repo into Vercel.
+3. Check that `https://<your-site>/api/status` returns
+   `{"ai":false,"apify":false,"maps":false}`.
+
+Only set `USE_SERVER_KEYS=true` for a private deployment behind a password,
+because then anyone who can reach the site spends your keys.
+
 ## Keeping your keys safe
 
 - Your keys live only in `.env.local`, which git ignores. Server code reads
   them through `lib/env.ts`, which is marked server-only, so they can't end up
   in the browser.
+- `lib/credentials.ts` hands the `.env` keys to the API routes only under
+  `npm run dev` or `USE_SERVER_KEYS=true`, so a deployed copy can't spend them.
 - Install [gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`)
   before your first commit. A pre-commit hook then blocks any commit that
   contains a key.

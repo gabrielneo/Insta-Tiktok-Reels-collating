@@ -1,11 +1,26 @@
 "use client";
 
 import { useRef } from "react";
-import { BookOpen, ExternalLink, KeyRound, ListChecks, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Download, ExternalLink, KeyRound, ListChecks, RefreshCw, ShieldCheck, X } from "lucide-react";
 
-const README_SETUP_URL = "https://github.com/gabrielneo/Insta-Tiktok-Reels-collating#use-it-on-your-real-videos";
+const REPO_URL = "https://github.com/gabrielneo/Insta-Tiktok-Reels-collating";
+const README_SETUP_URL = `${REPO_URL}#use-it-on-your-real-videos`;
 
 const STEPS = [
+  {
+    icon: Download,
+    title: "Download the app",
+    body: (
+      <>
+        This website only runs the demo. To read your own videos, get the code from{" "}
+        <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-pine underline underline-offset-2 hover:text-pine-dark">
+          GitHub<span className="sr-only"> (opens in a new tab)</span>
+        </a>{" "}
+        and run{" "}
+        <code className="rounded-sm bg-sunken px-1 py-px font-mono text-meta">npm install</code> in its folder.
+      </>
+    ),
+  },
   {
     icon: KeyRound,
     title: "Get three keys",
@@ -81,7 +96,8 @@ export default function SetupGuideDialog() {
                 How to set up Fieldnotes
               </h2>
               <p className="mt-1 text-body text-ink-soft">
-                The demo works without this. To read your own videos, it takes about 10 minutes.
+                The demo works without this. To read your own videos, run Fieldnotes on your own computer.
+                It takes about 10 minutes.
               </p>
             </div>
             <button

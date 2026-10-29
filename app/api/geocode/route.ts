@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { env } from "@/lib/env";
+import { serverCredentials } from "@/lib/credentials";
 import type { GeocodeResult } from "@/lib/types";
 import { describeError } from "@/lib/errorMessages";
 
@@ -96,7 +96,8 @@ async function geocodePlace(apiKey: string, place: PlaceQuery): Promise<GeocodeR
 }
 
 export async function POST(request: NextRequest) {
-  if (!env.GOOGLE_MAPS_API_KEY) {
+  const { mapsKey } = serverCredentials();
+  if (!mapsKey) {
     return NextResponse.json(
       { error: "Google Maps lookup isn't set up. Add GOOGLE_MAPS_API_KEY to .env.local and restart." },
       { status: 503 }
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
   const results: GeocodeResult[] = [];
   for (let i = 0; i < places.length; i += PARALLEL_LOOKUPS) {
     const batch = places.slice(i, i + PARALLEL_LOOKUPS);
-    results.push(...(await Promise.all(batch.map((p) => geocodePlace(env.GOOGLE_MAPS_API_KEY!, p)))));
+    results.push(...(await Promise.all(batch.map((p) => geocodePlace(mapsKey, p)))));
   }
 
   return NextResponse.json({ results });
