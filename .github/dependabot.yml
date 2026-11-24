@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # postprocessing@6.39 peers three < 0.187; lift once a newer postprocessing supports it
+    ignore:
+      - dependency-name: "three"
+        versions: [">=0.187.0"]
+      - dependency-name: "@types/three"
+        versions: [">=0.187.0"]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
