@@ -7,6 +7,9 @@ updates:
     open-pull-requests-limit: 5
     # postprocessing@6.39 peers three < 0.187; lift once a newer postprocessing supports it
     ignore:
+      # majors (tailwind 4, lucide 1, typescript 7…) need manual migration; upgrade those by hand
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "three"
         versions: [">=0.187.0"]
       - dependency-name: "@types/three"
